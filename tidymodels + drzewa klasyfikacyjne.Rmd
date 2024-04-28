@@ -1,0 +1,124 @@
+---
+title: "tidymodels + drzewa klasyfikacyjne"
+author:
+  name: Adrianna Rosmus
+  affiliation: Politechnika Krakowska
+subtitle: ""
+output:
+  html_document:
+    theme: readable
+    toc: yes
+    toc_float: yes
+    df_print: paged
+  pdf_document:
+    toc: yes
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r}
+library(tidymodels)
+library(yardstick)
+library(dplyr)
+```
+# Budowa i ocena drzewa klasyfikacyjnego z wykorzystaniem pakietu tidymodels w R
+
+## Drzewa klasyfikacyjne
+
+### Czym są drzewa klasyfikacyjne?
+
+- Metoda uczenia maszynowego do klasyfikacji i regresji
+- Podział danych na podzbiory, które są bardziej jednorodne pod względem kategorii docelowych
+
+### Zalety
+
+- **Interpretowalność**
+
+Drzewa klasyfikacyjne są łatwe do zrozumienia i interpretacji. Ich struktura przypomina prostą hierarchię decyzyjną, dzięki czemu można łatwo wyjaśnić, jak model dokonuje klasyfikacji.
+
+- **Niski koszt obliczeniowy**
+
+Budowa i przewidywanie na podstawie drzew klasyfikacyjnych jest stosunkowo szybka, co sprawia, że są one atrakcyjne w przypadku dużych zbiorów danych. Nie wymagają one również dużego nakładu obliczeniowego, co czyni je efektywnymi w praktycznych zastosowaniach.
+
+- **Dobre osiągi dla danych nieliniowych**
+
+Drzewa klasyfikacyjne są w stanie modelować nieliniowe zależności między cechami a klasami. Oznacza to, że są skuteczne nawet w przypadku, gdy relacje między cechami a klasyfikacją nie są prostymi liniami.
+
+
+# Przykładowe dane wbudowane w R
+- Skorzystamy z danych dotyczących kwiatów irysów
+- Zbiór zawiera informacje o długości i szerokości płatków oraz kielichów dla trzech gatunków irysów
+
+```{r}
+data(iris)
+head(iris)
+```
+
+# Budowa drzewa klasyfikacyjnego
+## Etapy budowy
+
+**1. Podział danych na zbiór treningowy i testowy**
+
+Dane zostały podzielone na zbiór treningowy i testowy przy użyciu funkcji initial_split, gdzie 70% danych trafia do zbioru treningowego, a 30% do zbioru testowego.
+
+**2. Wybór algorytmu budowy drzewa**
+
+W tym przypadku użyto algorytmu rpart (Recursive Partitioning and Regression Trees), który jest popularnym algorytmem do budowy drzew klasyfikacyjnych.
+
+**3. Dopasowanie modelu do danych treningowych**
+
+Model drzewa klasyfikacyjnego został dopasowany do danych treningowych, gdzie kolumna Species została przewidywana na podstawie pozostałych kolumn w zbiorze danych.
+
+**4. Ocena modelu na danych testowych**
+
+```{r}
+set.seed(123)
+split <- initial_split(iris, prop = 0.7)
+train_data <- training(split)
+test_data <- testing(split)
+
+tree_model <- decision_tree() %>%
+  set_engine("rpart") %>%
+  set_mode("classification") %>%
+  fit(Species ~ ., data = train_data)
+```
+
+Przewidujemy kolumne `Species` na podstawie wszystkich innych kolumn w zbiorze danych. 
+
+# Ocena drzewa klasyfikacyjnego
+
+## Metryki oceny
+- **Macierz pomyłek (Confusion Matrix)** 
+
+Przedstawia liczbę poprawnie i błędnie sklasyfikowanych przypadków dla każdej klasy. Pomaga w zrozumieniu, jak model radzi sobie z różnymi klasami.
+
+```{r}
+predictions <- predict(tree_model, new_data = test_data) %>%
+  mutate(Species = test_data$Species)
+
+conf_matrix <- conf_mat(predictions, truth = Species, estimate = .pred_class)
+conf_matrix
+```
+
+W macierzy pomyłek przedstawionej powyżej:
+
+- Diagonalne elementy (od lewego górnego do prawego dolnego rogu) reprezentują poprawnie sklasyfikowane przypadki dla każdego gatunku. Na przykład, liczba 14 oznacza, że 14 przypadków gatunku setosa zostało poprawnie sklasyfikowanych jako setosa.
+  
+- Elementy poza główną przekątną reprezentują błędnie sklasyfikowane przypadki. Na przykład, istnieje 1 przypadek, gdzie gatunek versicolor został błędnie sklasyfikowany jako virginica.
+
+W skrócie, każda liczba w macierzy pomyłek odpowiada liczbie przypadków, które model sklasyfikował jako dany gatunek (wiersze), ale były one rzeczywiście innego gatunku (kolumny). Macierz pomyłek pozwala na szybkie zrozumienie, w jaki sposób model radzi sobie z klasyfikacją różnych klas.
+
+- **Dokładność (Accuracy)**
+
+Wartość odzwierciedla procent poprawnie sklasyfikowanych przypadków w stosunku do wszystkich przypadków. 
+
+```{r}
+accuracy <- predictions %>% 
+  metrics(truth = .pred_class, estimate = .pred_class) %>% 
+  filter(.metric == "accuracy") %>% 
+  pull(.estimate)
+accuracy
+```
+
+Wartość dokładności równa 1 oznacza doskonałe dopasowanie modelu do danych testowych. Model klasyfikacyjny poprawnie przewidział klasy dla wszystkich próbek w zbiorze testowym. Jest to bardzo pozytywny wynik, sugerujący, że model jest bardzo skuteczny w klasyfikacji badanych danych. Jednakże, warto również wziąć pod uwagę inne aspekty modelu oraz kontekst zadania, aby zapewnić kompleksową ocenę jego skuteczności.
