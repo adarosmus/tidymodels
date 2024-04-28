@@ -1,0 +1,207 @@
+---
+title: "pipelines+workflows+tidymodels=czyli automatyzacja"
+author:
+  name: Adrianna Rosmus
+  affiliation: Politechnika Krakowska
+subtitle: ""
+output:
+  html_document:
+    theme: readable
+    toc: yes
+    toc_float: yes
+    df_print: paged
+  pdf_document:
+    toc: yes
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+# Automatyzacja analizy danych w R: Zastosowanie pipeline'ów, workflows i tidymodels
+
+```{r, include = FALSE}
+library(yardstick)
+library(dplyr)
+```
+
+Automatyzacja procesów analizy danych jest kluczowa w wielu dziedzinach, od biznesu po nauki społeczne i medycynę. Z rosnącym wolumenem danych oraz złożonością analizowanych problemów, automatyzacja staje się coraz bardziej niezbędna. Pozwala ona efektywnie zarządzać danymi, przyspieszać cykl rozwoju modeli, eliminować błędy ludzkie oraz zwiększać skuteczność analizy.
+
+## Tidymodels 
+
+Jest to zestaw narzędzi do modelowania danych w R, które obejmują szereg pakietów, takich jak parsnip do definiowania modeli, recipes do przetwarzania wstępnego danych, workflows do organizowania procesów modelowania, tune do strojenia hiperparametrów i inne. 
+
+```{r}
+library(tidymodels)
+```
+
+## Workflows
+
+Workflow to obiekt, który może łączyć ze sobą żądania dotyczące przetwarzania wstępnego, modelowania oraz przetwarzania końcowego. Na przykład, jeśli mamy receptę (`recipe`) i model `parsnip`, mogą one być połączone w workflow. 
+Zalety to:
+
+1. Nie ma potrzeby śledzenia osobnych obiektów w swoim środowisku roboczym.
+
+2. Przygotowanie recepty i dopasowanie modelu można wykonać za pomocą pojedynczego wywołania funkcji `fit()`.
+
+
+```{r, echo = FALSE}
+#install.packages("workflows")
+```
+
+```{r}
+library(recipes)
+library(parsnip)
+library(workflows)
+```
+
+## Pipelines
+
+Pipelines są prostym sposobem na zachowanie uporządkowanego kodu przetwarzania danych i modelowania. Konkretnie, pipeline łączy kroki przetwarzania danych i modelowania, dzięki czemu możemy używać całego zestawu jak jednego kroku.
+
+
+**%>% lub |>**
+
+
+Zalety: 
+
+1. Czystszy kod: Dzięki nim nie trzeba ręcznie śledzić danych na każdym etapie przetwarzania.
+
+2. Mniej błędów: Mniejsze ryzyko pominięcia lub źle zastosowania kroków przetwarzania danych.
+
+
+## Przykład
+
+#### Zbiór danych 
+
+Zbiór danych zawiera informacje dotyczące nieruchomości w Melbourne, Australii. Dane te zostały zebrane przez Tony'ego Pino z publicznie dostępnych wyników opublikowanych co tydzień na stronie Domain.com.au. Zbiór obejmuje adresy nieruchomości, rodzaj nieruchomości, dzielnicę, metodę sprzedaży, liczbę pokoi, cenę, agenta nieruchomości, datę sprzedaży oraz odległość od centrum miasta.
+
+
+```{r}
+data <- read.csv("melb_data.csv")
+head(data)
+```
+
+```{r}
+# Podział danych na zbiór treningowy i testowy
+set.seed(0) 
+train_index <- sample(1:nrow(data), 0.8 * nrow(data)) # Indeksy wierszy dla zbioru treningowego
+X_train_full <- data[train_index, ]
+X_valid_full <- data[-train_index, ]
+y_train <- X_train_full$Price
+y_valid <- X_valid_full$Price
+```
+
+
+```{r}
+# Wybór kolumn kategorycznych i numerycznych
+categorical_cols <- names(Filter(is.character, X_train_full)) #kolumny kategoryczne z zbioru treningowego
+numerical_cols <- names(Filter(is.numeric, X_train_full)) #kolumny numeryczne z zbioru treningowego 
+
+# Wybór kolumn z niską kardynalnością (czyli stosunkowo niską liczbą unikalnych wartości <10 w tym przypadku)
+selected_categorical_cols <- character()
+for (col in categorical_cols) {
+  if (length(unique(X_train_full[[col]])) < 10) {
+    selected_categorical_cols <- c(selected_categorical_cols, col)
+  }
+}
+```
+
+```{r}
+# Stworzenie zbiorów treningowego i testowego zawierających wybrane kolumny
+X_train <- X_train_full[c(selected_categorical_cols, numerical_cols)]
+X_valid <- X_valid_full[c(selected_categorical_cols, numerical_cols)]
+```
+
+```{r}
+head(X_train)
+```
+
+
+### Proces tworzenia automatyzacji modelowania danych
+
+Najpierw definiujemy kroki przetwarzania danych, następnie określamy specyfikację modelu, łączymy je w workflow oraz dopasowujemy model i dokonujemy oceny jego działania. Całość odbywa się w sposób uporządkowany i spójny, co ułatwia zarządzanie i analizę danych w kontekście modelowania.
+
+#### Krok 1: Definiowanie kroków przetwarzania
+
+```{r}
+# Definicja preprocessingu
+rec <- recipe(Price ~ ., data = X_train) %>%
+  step_impute_median(all_numeric(), -all_outcomes()) %>%
+  step_other(all_nominal(), -all_outcomes(), threshold = 0.05) %>%
+  step_dummy(all_nominal(), -all_outcomes())
+```
+
+#### Krok 2: Definiowanie Modelu
+
+```{r}
+# Definicja modelu
+model_spec <- rand_forest(trees = 100) %>%
+  set_mode("regression") %>%
+  set_engine("randomForest")
+```
+
+#### Krok 3: Tworzenie Workflow
+
+```{r}
+# Tworzenie potoku
+wflow <- workflow() %>%
+  add_recipe(rec) %>%
+  add_model(model_spec)
+
+# Dopasowanie modelu
+fit <- fit(wflow, data = X_train)
+```
+
+#### Krok 4: Predykcja i Ocena Modelu
+
+```{r}
+# Predykcje
+preds <- predict(fit, new_data = X_valid)$.pred
+```
+
+```{r, echo = FALSE}
+library(Metrics)
+```
+
+```{r}
+MAE_score <- mae(y_valid, preds)
+RMSE_score <- rmse(y_valid, preds)
+MAPE_score <- mape(y_valid, preds)
+
+print(paste('MAE:', MAE_score))
+print(paste('RMSE:', RMSE_score))
+print(paste('MAPE:', MAPE_score))
+```
+
+### Wykres residuów
+
+```{r}
+# Tworzenie ramki danych z prawdziwymi i przewidywanymi wartościami
+data_ <- data.frame(truth = y_valid, estimate = preds)
+data_$residuals <- round(data_$truth - data_$estimate, 2)
+```
+
+```{r}
+library(plotly)
+
+# Tworzenie interaktywnego wykresu residuów za pomocą plotly
+plot_ly(data_, x = ~estimate, y = ~residuals, type = "scatter", mode = "markers",
+        marker = list(color = ~residuals, colorscale = "Viridis"),
+        text = ~paste("Przewidywane wartości: ", round(estimate, 2), "<br>",
+                      "Residua: ", residuals),
+        hoverinfo = "text") %>%
+  layout(title = "Wykres residuów",
+         xaxis = list(title = "Przewidywane wartości"),
+         yaxis = list(title = "Residua"))
+```
+
+```{r}
+sum(abs(data_$residuals) < 1000)
+
+data_ %>% filter(abs(data_$residuals) < 1000)
+```
+
+
+
+
+
+
